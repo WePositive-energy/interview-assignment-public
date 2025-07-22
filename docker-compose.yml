@@ -3,13 +3,9 @@ volumes:
   db:
 
 services:
-  db:
-    env_file:
-      - .env
-    image: postgis/postgis:15-master
+  motoserver:
+    image: motoserver/moto:latest
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - db:/home/postgres/pgdata/data
-      - .:/app
-    restart: on-failure
+      - "3000:3000"
+    environment:
+      - MOTO_PORT=3000 # set moto listener port with env var

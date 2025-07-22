@@ -18,11 +18,10 @@ RUN pip install --upgrade pip poetry
 # set working directory
 WORKDIR /app
 COPY ./poetry.lock ./pyproject.toml ./
-ENV POETRY_HTTP_BASIC_WEPOSITIVE_AWS_USERNAME=aws
 RUN mkdir .venv
-RUN --mount=type=secret,id=pypi-token,env=POETRY_HTTP_BASIC_WEPOSITIVE_AWS_PASSWORD poetry install --only main --no-root
+RUN poetry install --only main --no-root
 COPY . .
-RUN --mount=type=secret,id=pypi-token,env=POETRY_HTTP_BASIC_WEPOSITIVE_AWS_PASSWORD poetry install
+RUN poetry install
 
 USER app
 CMD ["./.venv/bin/serve","prod"]

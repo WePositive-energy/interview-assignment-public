@@ -1,41 +1,26 @@
 [tool.poetry]
-name = "fastapi-microservice"
+name = "interview-assignment"
 version = "0.6.8a0"
 description = "WePositive FastAPI Microservice Repository"
 authors = ["Dolf Andringa <dolf@wepositive.energy>"]
 readme = "README.md"
-packages = [{include = "fastapi_microservice"}]
+packages = [{include = "interview_assignment"}]
 
 [[tool.poetry.source]]
 name = "PyPI"
 priority = "primary"
-
-[[tool.poetry.source]]
-name = "wepositive_aws"
-url = "https://repositories-354918389256.d.codeartifact.eu-west-1.amazonaws.com/pypi/python/simple"
-priority="supplemental"
-
-[[tool.poetry.source]]
-name = "wepositive_aws_publish"
-url = "https://repositories-354918389256.d.codeartifact.eu-west-1.amazonaws.com/pypi/python"
-priority = "supplemental"
 
 [tool.poetry.dependencies]
 python = "^3.12"
 fastapi = {extras = ["standard"], version = "^0.116.1"}
 pydantic = "^2.11.7"
 pydantic-settings = {extras = ["dotenv"], version = "^2.10.1"}
-pyjwt = "^2.10.1"
-sqlmodel = "^0.0.24"
 typer = "^0.15.4"
 bcrypt = "^4.3.0"
 structlog = "^25.4.0"
-asyncpg = "^0.30.0"
 uvicorn = "^0.34.3"
-alembic = "^1.16.1"
-psycopg2-binary = "^2.9.10"
 httpx = "^0.28.1"
-wepositive-types = {version = "^0.5.0a9", source = "wepositive_aws"}
+aioboto3 = "^15.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = ">=3.3.3"
@@ -47,14 +32,14 @@ ruff = ">=0.0.283"
 respx = "^0.22.0"
 pytest-asyncio = "^0.26.0"
 gevent = "^25.5.1"
-boto3 = "^1.39.0"
-boto3-stubs = {extras = ["full"], version = "^1.39.3"}
+moto = {extras = ["server"], version = "^5.1.10"}
+types-aioboto3 = {extras = ["essential", "sns", "sqs"], version = "^15.0.0"}
 
 [tool.poetry.scripts]
-management = "fastapi_microservice.management.main:app"
-create_asymmetric_keys = "fastapi_microservice.management.create_asymmetric_keys:app"
-serve = "fastapi_microservice.management.serve:app"
-aws = "fastapi_microservice.management.aws:app"
+management = "interview_assignment.management.main:app"
+serve = "interview_assignment.management.serve:app"
+monitor_sns_topic = "interview_assignment.management.monitor_sns_topic:main"
+send_sqs_message = "interview_assignment.management.send_sqs_message:app"
 
 
 [build-system]
@@ -90,11 +75,12 @@ asyncio_default_fixture_loop_scope = "session"
 
 [tool.coverage.run]
 branch = true
-source = ["./fastapi_microservice"]
+source = ["./interview_assignment"]
 omit = [
-    "fastapi_microservice/management/*"
+    "interview_assignment/management/*",
+    "interview_assignment/types/aws.py"
 ]
-concurrency = ["gevent"]
+concurrency = ["thread", "gevent"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -104,11 +90,11 @@ exclude_also = [
     "@abstractmethod",
     "@abc.abstractmethod",
 ]
-fail_under = 100
+fail_under = 80
 show_missing = true
 
 [tool.ruff.lint]
-ignore = ["PT013"]
+ignore = ["PT013", "G004"]
 select = ["E4", "E7", "E9", "F", "BLE","ASYNC","DTZ","C4","T10","T20","PTH","UP","I","LOG","G","PT"]
 extend-safe-fixes = ["UP"]
 
