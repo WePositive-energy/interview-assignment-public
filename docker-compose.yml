@@ -1,0 +1,15 @@
+volumes:
+  # Persistent volume for postgres
+  db:
+
+services:
+  db:
+    env_file:
+      - .env
+    image: postgis/postgis:15-master
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db:/home/postgres/pgdata/data
+      - .:/app
+    restart: on-failure

@@ -1,0 +1,6 @@
+* @WePositive-energy/reviewers
+
+# Permit changes to dependencies ONLY to not require a codeowner review (e.g. Dependabot)
+poetry.lock
+pyproject.toml
+.pre-commit-config.yaml

@@ -1,0 +1,173 @@
+name: CI
+on:
+  pull_request:
+    branches::
+      - dev
+      - main
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: write # Read is required for actions/checkout and write to create a tag
+  actions: write # This is required to create a tag
+jobs:
+  version_changed:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: version_changed
+        name: Check version number changed
+        run: git fetch && ! git --no-pager diff origin/${{ github.event.pull_request.base.ref }} --quiet --exit-code -G version -- pyproject.toml
+  linting-and-tests:
+    needs: [version_changed]
+    runs-on: ubuntu-22.04
+    env:
+      POETRY_HTTP_BASIC_WEPOSITIVE_AWS_USERNAME: aws
+      POETRY_HTTP_BASIC_WEPOSITIVE_AWS_PASSWORD: ${{ secrets.CODEARTIFACT_TOKEN }}
+      POETRY_PYPI_TOKEN_WEPOSITIVE_AWS_PUBLISH: ${{ secrets.CODEARTIFACT_TOKEN }}
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        # Set health checks to wait until postgres has started
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: abatilo/actions-poetry@v3
+      - uses: actions/cache@v4
+        name: Setup cache
+        with:
+          path: ./.venv
+          key: poetry-lock-${{ hashFiles('poetry.lock') }}
+          # We always set "in-project" in poetry.toml to ensure a local .venv, as
+          # we require that for pyright and other pre-commit hooks.
+      - name: configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "arn:aws:iam::${{ secrets.AWS_PROJECT_ID }}:role/software-publishers"
+          aws-region: "${{ vars.AWS_REGION }}"
+      - name: Install poetry dependencies
+        run: poetry install --all-extras --no-interaction
+        shell: bash
+      - id: ruff_version
+        uses: scene-connect/actions/python-package-manager/get_package_version@v5
+        with:
+          package: ruff
+          group: develop
+          package-manager: "poetry"
+          python-version: "3.12"
+      - name: Run pyright
+        run: poetry run pyright
+        shell: bash
+      - uses: chartboost/ruff-action@v1
+        with:
+          version: ${{ steps.ruff_version.outputs.version }}
+      - name: Set up environment
+        run: |
+          cp .env.ci .env
+      - name: Run pytest
+        uses: liskin/gh-problem-matcher-wrap@v3
+        env:
+          ENVIRONMENT: CI
+          SQLALCHEMY_DB_URI: "postgresql+asyncpg://postgres:postgres@localhost:5432/test"
+        with:
+          linters: pytest
+          run: poetry run python -m pytest
+  terraform-linting:
+    needs: [version_changed]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/antonbabenko/pre-commit-terraform:latest # latest used here for simplicity, not recommended
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+          git fetch --no-tags --depth=1 --prune origin +refs/heads/*:refs/remotes/origin/*
+      - name: Get changed files
+        id: file_changes
+        run: |
+          export DIFF=$(git diff --name-only origin/${{ github.base_ref }})
+          echo "Diff between ${{ github.base_ref }} and ${{ github.sha }}"
+          echo "files=$( echo "$DIFF" | xargs echo )" >> $GITHUB_OUTPUT
+      - name: fix tar dependency in alpine container image
+        run: |
+          apk --no-cache add tar
+          # check python modules installed versions
+          python -m pip freeze --local
+      - name: Cache pre-commit since we use pre-commit from container
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-3|${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: format
+        run: |
+          pre-commit run terraform_fmt --color=always --show-diff-on-failure --files ${{ steps.file_changes.outputs.files }}
+      - name: validate
+        run: |
+          pre-commit run terraform_validate --color=always --show-diff-on-failure --files ${{ steps.file_changes.outputs.files }}
+      - name: docs
+        run: |
+          pre-commit run terraform_docs --color=always --show-diff-on-failure --files ${{ steps.file_changes.outputs.files }}
+      - name: tflint
+        run: |
+          pre-commit run terraform_tflint --color=always --show-diff-on-failure --files ${{ steps.file_changes.outputs.files }}
+      - name: trivy
+        run: |
+          pre-commit run terraform_trivy --color=always --show-diff-on-failure --files ${{ steps.file_changes.outputs.files }}
+  docker-build:
+    needs: [version_changed]
+    runs-on: ubuntu-22.04
+    env:
+      DOCKER_BUILDKIT: 1
+      full_image_uri: "${{ secrets.AWS_PROJECT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/fastapi-microservice-template"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "arn:aws:iam::${{ secrets.AWS_PROJECT_ID }}:role/software-publishers"
+          aws-region: "${{ vars.AWS_REGION }}"
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: "false"
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          build-args: BUILDKIT_INLINE_CACHE=1
+          cache-from: ${{ env.full_image_uri }}:latest
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: false
+          secrets: |
+            pypi-token=${{ secrets.CODEARTIFACT_TOKEN }}
+          tags: |
+            ${{ env.full_image_uri }}:latest
+            ${{ env.full_image_uri }}:${{ github.sha }}

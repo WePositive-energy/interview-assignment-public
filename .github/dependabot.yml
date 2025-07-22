@@ -1,0 +1,19 @@
+version: 2
+registries:
+  codeartifact:
+    type: python-index
+    url: "https://repositories-354918389256.d.codeartifact.eu-west-1.amazonaws.com/pypi/python/simple"
+    username: aws
+    password: ${{ secrets.CODEARTIFACT_TOKEN }}
+updates:
+  - package-ecosystem: "pip"
+    allow:
+      - dependency-type: all
+    directory: "/"
+    reviewers:
+      - "WePositive-energy/community-energy-manager"
+    schedule:
+      interval: "weekly"
+    registries:
+      - codeartifact
+    insecure-external-code-execution: allow # apparently pip executes code see https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#insecure-external-code-execution
